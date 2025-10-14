@@ -14,16 +14,19 @@ Android：CLOSEST_SYNC、分片并发、像素/质量下压、缓冲复用、I/O
 
 ## ✨ 预览
 <div style="display:flex; align-items:flex-start; justify-content:center; gap:32px; flex-wrap:wrap;">
-  <figure style="margin:0; display:flex; flex-direction:column; align-items:center;">
-    <figcaption style="font-weight:600; margin-bottom:8px;">iOS</figcaption>
+  <!-- iOS 列 -->
+  <div style="display:flex; flex-direction:column; align-items:center;">
+    <div style="font-weight:600; margin-bottom:8px;">iOS</div>
     <img src="https://cdn.resste.com/image/video_keyframe_extractor_ios.jpg" alt="iOS" width="300" style="display:block; height:auto;">
-  </figure>
+  </div>
 
-  <figure style="margin:0; display:flex; flex-direction:column; align-items:center;">
-    <figcaption style="font-weight:600; margin-bottom:8px;">Android</figcaption>
+  <!-- Android 列 -->
+  <div style="display:flex; flex-direction:column; align-items:center;">
+    <div style="font-weight:600; margin-bottom:8px;">Android</div>
     <img src="https://cdn.resste.com/image/video_keyframe_extractor_android.jpeg" alt="Android" width="300" style="display:block; height:auto;">
-  </figure>
+  </div>
 </div>
+
 
 
 ## ✨ 参数
