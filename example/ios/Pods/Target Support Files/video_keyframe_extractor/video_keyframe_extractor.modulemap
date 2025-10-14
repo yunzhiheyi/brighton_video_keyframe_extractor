@@ -1,0 +1,6 @@
+framework module video_keyframe_extractor {
+  umbrella header "video_keyframe_extractor-umbrella.h"
+
+  export *
+  module * { export * }
+}
