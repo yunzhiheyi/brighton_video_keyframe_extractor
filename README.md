@@ -13,7 +13,9 @@ Android：CLOSEST_SYNC、分片并发、像素/质量下压、缓冲复用、I/O
 实用工程能力：分页抽帧、任务取消、缓存清理、详细中文日志与耗时埋点
 
 ## ✨ 预览
+iOS
 <img src="https://cdn.resste.com/image/video_keyframe_extractor_ios.jpg" alt="iOS" width="300">
+Android
 <img src="https://cdn.resste.com/image/video_keyframe_extractor_android.jpeg" alt="iOS" width="300">
 
 ## ✨ 参数
