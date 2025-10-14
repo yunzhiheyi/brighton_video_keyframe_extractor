@@ -12,8 +12,8 @@ Android：CLOSEST_SYNC、分片并发、像素/质量下压、缓冲复用、I/O
 可控质量：targetWidth/targetHeight 或 maxDecodePixels 控制分辨率，JPEG 质量可选
 实用工程能力：分页抽帧、任务取消、缓存清理、详细中文日志与耗时埋点
 
-![https://cdn.resste.com/image/video_keyframe_extractor_ios.jpg]
-![https://cdn.resste.com/image/video_keyframe_extractor_android.jpg]
+![iOS](https://cdn.resste.com/image/video_keyframe_extractor_ios.jpg)
+![Android](https://cdn.resste.com/image/video_keyframe_extractor_android.jpg)
 
 ## ✨ 参数
 ```dart
