@@ -15,6 +15,7 @@ Android：CLOSEST_SYNC、分片并发、像素/质量下压、缓冲复用、I/O
 ## ✨ 预览
 iOS<br>
 <img src="https://cdn.resste.com/image/video_keyframe_extractor_ios.jpg" alt="iOS" width="300">
+<br>
 Android<br>
 <img src="https://cdn.resste.com/image/video_keyframe_extractor_android.jpeg" alt="iOS" width="300">
 
