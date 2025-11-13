@@ -5,14 +5,16 @@ import 'video_keyframe_extractor_platform_interface.dart';
 import 'video_keyframe_extractor.dart';
 
 /// An implementation of [VideoKeyframeExtractorPlatform] that uses method channels.
-class MethodChannelVideoKeyframeExtractor extends VideoKeyframeExtractorPlatform {
+class MethodChannelVideoKeyframeExtractor
+    extends VideoKeyframeExtractorPlatform {
   /// The method channel used to interact with the native platform.
   @visibleForTesting
   final methodChannel = const MethodChannel('video_keyframe_extractor');
 
   @override
   Future<String?> getPlatformVersion() async {
-    final version = await methodChannel.invokeMethod<String>('getPlatformVersion');
+    final version =
+        await methodChannel.invokeMethod<String>('getPlatformVersion');
     return version;
   }
 
@@ -23,7 +25,8 @@ class MethodChannelVideoKeyframeExtractor extends VideoKeyframeExtractorPlatform
     required VKExtractOptions options,
   }) async {
     final args = {'path': path, ...options.toMap()};
-    final List<dynamic> res = await methodChannel.invokeMethod('extractKeyFrames', args);
+    final List<dynamic> res =
+        await methodChannel.invokeMethod('extractKeyFrames', args);
     return res;
   }
 
@@ -42,4 +45,63 @@ class MethodChannelVideoKeyframeExtractor extends VideoKeyframeExtractorPlatform
     await methodChannel.invokeMethod('clearAllCaches');
   }
 
+  /// 视频信息
+  @override
+  Future<Map<String, dynamic>> getVideoInfo({required String path}) async {
+    final map = await methodChannel
+        .invokeMethod<dynamic>('getVideoInfo', {'path': path});
+    return Map<String, dynamic>.from(map as Map);
+  }
+
+  /// 视频封面（bytes）
+  @override
+  Future<Uint8List> getVideoCoverBytes({
+    required String path,
+    int? timeUs,
+    int? targetWidth,
+    int? targetHeight,
+    int jpegQuality = 80,
+    bool applyRotation = true,
+  }) async {
+    final bytes = await methodChannel.invokeMethod<Uint8List>('getVideoCover', {
+      'path': path,
+      'timeUs': timeUs,
+      'targetWidth': targetWidth,
+      'targetHeight': targetHeight,
+      'jpegQuality': jpegQuality,
+      'returnMode': 'bytes',
+      'applyRotation': applyRotation,
+    });
+    if (bytes == null) {
+      throw PlatformException(
+          code: 'COVER_ERROR', message: 'getVideoCover 返回空 bytes');
+    }
+    return bytes;
+  }
+
+  /// 视频封面（文件路径）
+  @override
+  Future<String> getVideoCoverFile({
+    required String path,
+    int? timeUs,
+    int? targetWidth,
+    int? targetHeight,
+    int jpegQuality = 80,
+    bool applyRotation = true,
+  }) async {
+    final p = await methodChannel.invokeMethod<String>('getVideoCover', {
+      'path': path,
+      'timeUs': timeUs,
+      'targetWidth': targetWidth,
+      'targetHeight': targetHeight,
+      'jpegQuality': jpegQuality,
+      'returnMode': 'file',
+      'applyRotation': applyRotation,
+    });
+    if (p == null || p.isEmpty) {
+      throw PlatformException(
+          code: 'COVER_ERROR', message: 'getVideoCover 返回空路径');
+    }
+    return p;
+  }
 }

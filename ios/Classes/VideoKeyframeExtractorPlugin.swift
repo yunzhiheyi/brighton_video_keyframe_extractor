@@ -20,6 +20,20 @@ final class T {
   static func end(_ k: String, _ msg: String = "") { lap(k, msg); marks.removeValue(forKey: k) }
 }
 
+struct VideoInfoResult {
+  let width: Int
+  let height: Int
+  let rotation: Int
+  let durationMs: Int
+
+  /// 编码器估算码率（来自 track.estimatedDataRate，bps）
+  let bitrate: Int
+  /// 更精准 fps（优先 nominal，其次 minFrameDuration，再次 Reader 采样）
+  let fps: Double
+  let sizeBytes: Int
+  let mimeType: String
+}
+
 // ================== 插件主体 ==================
 public class VideoKeyframeExtractorPlugin: NSObject, FlutterPlugin {
 
@@ -65,6 +79,44 @@ public class VideoKeyframeExtractorPlugin: NSObject, FlutterPlugin {
         print("VKFE 🧹 已清理任务缓存：\(dir.path)")
       }
       result(nil)
+
+    case "getVideoInfo":
+      guard
+        let args = call.arguments as? [String: Any],
+        let path = args["path"] as? String, !path.isEmpty
+      else {
+        result(FlutterError(code: "ARG_ERROR", message: "path 不能为空", details: nil))
+        return
+      }
+      // 背景执行，避免阻塞 UI
+      DispatchQueue.global(qos: .userInitiated).async {
+        do {
+          let info = try self.handleGetVideoInfo(path: path)
+          let map: [String: Any] = [
+            "width": info.width,
+            "height": info.height,
+            "rotation": info.rotation,
+            "durationMs": info.durationMs,
+            "bitrate": info.bitrate,
+            "fps": info.fps,
+            "sizeBytes": info.sizeBytes,
+            "mimeType": info.mimeType
+          ]
+          DispatchQueue.main.async { result(map) }
+        } catch {
+          DispatchQueue.main.async {
+            result(FlutterError(code: "VIDEO_INFO_ERROR", message: error.localizedDescription, details: nil))
+          }
+        }
+      }
+
+    case "getVideoCover":
+      guard let args = call.arguments as? [String: Any],
+            var path = args["path"] as? String, !path.isEmpty else {
+        result(FlutterError(code: "ARG_ERROR", message: "path 不能为空", details: nil)); return
+      }
+      if !path.hasPrefix("file://") { path = "file://" + path }
+      handleGetVideoCover(args: args, path: path, result: result)
 
     case "clearAllCaches":
       let root = FileManager.default.temporaryDirectory.appendingPathComponent("video_keyframes")
@@ -236,6 +288,282 @@ public class VideoKeyframeExtractorPlugin: NSObject, FlutterPlugin {
       }
     }
   }
+
+  // MARK: - 获取视频信息（✅ 单一定义，类作用域）
+  private func handleGetVideoInfo(path: String,
+                                  fpsProbeSeconds: Double = 2.0,
+                                  fpsProbeMaxFrames: Int = 200) throws -> VideoInfoResult {
+
+    let url = coerceFileURL(from: path)
+
+    let asset = AVURLAsset(url: url)
+    let keys = ["duration", "tracks"]
+    var loadErr: NSError?
+    let group = DispatchGroup()
+    group.enter()
+    asset.loadValuesAsynchronously(forKeys: keys) { group.leave() }
+    group.wait()
+
+    for k in keys {
+      let st = asset.statusOfValue(forKey: k, error: &loadErr)
+      if st != .loaded {
+        throw NSError(domain: "VideoInfo", code: -1,
+                      userInfo: [NSLocalizedDescriptionKey: loadErr?.localizedDescription ?? "Load \(k) failed"])
+      }
+    }
+
+    guard let track = asset.tracks(withMediaType: .video).first else {
+      throw NSError(domain: "VideoInfo", code: -2,
+                    userInfo: [NSLocalizedDescriptionKey: "No video track"])
+    }
+
+    // 旋转角（0/90/180/270）
+    let t = track.preferredTransform
+    let rotation: Int = {
+      if t.a == 0 && t.b == 1 && t.c == -1 && t.d == 0 { return 90 }
+      if t.a == 0 && t.b == -1 && t.c == 1 && t.d == 0 { return 270 }
+      if t.a == -1 && t.b == 0 && t.c == 0 && t.d == -1 { return 180 }
+      return 0
+    }()
+
+    // 应用旋转后的显示宽高
+    let displayed = track.naturalSize.applying(track.preferredTransform)
+    let width  = Int(abs(displayed.width.rounded()))
+    let height = Int(abs(displayed.height.rounded()))
+
+    let durationSec = CMTimeGetSeconds(asset.duration)
+    let durationMs = Int((durationSec.isFinite ? durationSec : 0) * 1000)
+
+    // 文件大小
+    let sizeBytes: Int = {
+      guard url.isFileURL else { return -1 }
+      return (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? -1
+    }()
+
+    // 码率
+    let overallBitrate = (durationSec > 0 && sizeBytes > 0) ? Int(Double(sizeBytes) * 8.0 / durationSec) : 0
+//     let encoderBitrate = Int(track.estimatedDataRate) // bps
+
+    // FPS：nominal → minFrameDuration → Reader 探测
+    let fps: Double = {
+      let n = Double(track.nominalFrameRate)
+      if n > 0 { return n }
+      if track.minFrameDuration.isValid, track.minFrameDuration.value > 0 {
+        let fd = CMTimeGetSeconds(track.minFrameDuration)
+        if fd > 0 { return 1.0 / fd }
+      }
+      guard fpsProbeSeconds > 0 else { return 0 }
+      do {
+        let reader = try AVAssetReader(asset: asset)
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
+          kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+          kCVPixelBufferIOSurfacePropertiesKey as String: [:]
+        ])
+        output.alwaysCopiesSampleData = false
+        if reader.canAdd(output) { reader.add(output) }
+        let sampleWindow = min(durationSec, fpsProbeSeconds)
+        reader.timeRange = CMTimeRange(start: .zero,
+                                       duration: CMTime(seconds: sampleWindow, preferredTimescale: 1000))
+        guard reader.startReading() else { return 0 }
+        var frames = 0
+        while reader.status == .reading, frames < fpsProbeMaxFrames {
+          autoreleasepool { if output.copyNextSampleBuffer() != nil { frames += 1 } }
+        }
+        return sampleWindow > 0 ? Double(frames) / sampleWindow : 0
+      } catch { return 0 }
+    }()
+
+    let mimeType = bestEffortMimeType(for: url) ?? "application/octet-stream"
+
+    return VideoInfoResult(
+      width: width,
+      height: height,
+      rotation: rotation,
+      durationMs: durationMs,
+      bitrate: overallBitrate,
+      fps: fps,
+      sizeBytes: sizeBytes,
+      mimeType: mimeType
+    )
+  }
+
+  // MARK: - MIME 推断（UTType → 扩展名 → 头部嗅探 → 兜底）
+  private func bestEffortMimeType(for url: URL) -> String? {
+    // 1) 直接用 typeIdentifier
+    if let values = try? url.resourceValues(forKeys: [.typeIdentifierKey]),
+       let typeId = values.typeIdentifier {
+      if #available(iOS 14.0, *) {
+        if let ut = UTType(typeId), let mt = ut.preferredMIMEType { return mt }
+      } else {
+        if let mt = UTTypeCopyPreferredTagWithClass(typeId as CFString, kUTTagClassMIMEType)?
+          .takeRetainedValue() { return mt as String }
+      }
+    }
+
+    // 2) 扩展名
+    let ext = url.pathExtension.lowercased()
+    if !ext.isEmpty {
+      if #available(iOS 14.0, *) {
+        if let ut = UTType(filenameExtension: ext), let mt = ut.preferredMIMEType { return mt }
+      } else {
+        if let uti = UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, ext as CFString, nil)?
+          .takeRetainedValue(),
+           let mt  = UTTypeCopyPreferredTagWithClass(uti, kUTTagClassMIMEType)?
+          .takeRetainedValue() { return mt as String }
+      }
+      switch ext {
+        case "mp4", "m4v": return "video/mp4"
+        case "mov":       return "video/quicktime"
+        case "mkv":       return "video/x-matroska"
+        case "webm":      return "video/webm"
+        case "avi":       return "video/x-msvideo"
+        default: break
+      }
+    }
+
+    // 3) 头部嗅探（仅 file://）。—— 使用旧 API：readData(ofLength:) + closeFile()，无版本要求
+    guard url.isFileURL, let fh = try? FileHandle(forReadingFrom: url) else { return nil }
+    let header = fh.readData(ofLength: 512)
+    fh.closeFile()
+
+    if header.count >= 12 {
+      // MP4 / QuickTime：.... ftyp
+      let b = [UInt8](header)
+      if b[4] == 0x66, b[5] == 0x74, b[6] == 0x79, b[7] == 0x70 {
+        let brand = String(bytes: b[8...11], encoding: .ascii)?.lowercased() ?? ""
+        if brand == "qt  " { return "video/quicktime" }
+        if brand.hasPrefix("3gp") { return "video/3gpp" }
+        return "video/mp4"
+      }
+    }
+    // Matroska / WebM：EBML
+    if header.starts(with: Data([0x1A, 0x45, 0xDF, 0xA3])) {
+      if let s = String(data: header, encoding: .isoLatin1)?.lowercased(),
+         s.contains("webm") { return "video/webm" }
+      return "video/x-matroska"
+    }
+    // AVI：RIFF....AVI
+    if header.starts(with: Data([0x52, 0x49, 0x46, 0x46])) && header.count >= 12 {
+      let fourCC = header.subdata(in: 8..<12)
+      if fourCC == Data([0x41, 0x56, 0x49, 0x20]) { return "video/x-msvideo" }
+    }
+
+    // 4) 兜底
+    return "application/octet-stream"
+  }
+
+
+  // MARK: - 小工具
+  private func coerceFileURL(from path: String) -> URL {
+    if path.hasPrefix("file://"), let u = URL(string: path) { return u }
+    return URL(fileURLWithPath: path)
+  }
+
+  // 工具：从 CGAffineTransform 推导 0/90/180/270°
+  private static func rotationDegrees(from t: CGAffineTransform) -> Int {
+    if t.a == 0 && t.b == 1 && t.c == -1 && t.d == 0 { return 90 }
+    if t.a == 0 && t.b == -1 && t.c == 1 && t.d == 0 { return 270 }
+    if t.a == -1 && t.b == 0 && t.c == 0 && t.d == -1 { return 180 }
+    return 0
+  }
+
+  // 工具：获取文件大小（file:// 才能拿到；其余返回 -1）
+  private static func fileSizeBytes(for url: URL) -> Int {
+    guard url.isFileURL else { return -1 }
+    do {
+      let values = try url.resourceValues(forKeys: [.fileSizeKey])
+      return values.fileSize ?? -1
+    } catch { return -1 }
+  }
+
+ // MARK: - 获取封面（默认第一帧）
+ private func handleGetVideoCover(args: [String: Any], path: String, result: @escaping FlutterResult) {
+   let url = URL(string: path)!
+   let asset = AVURLAsset(url: url)
+
+   let timeUsArg = args["timeUs"] as? Int
+   let targetW   = args["targetWidth"] as? Int
+   let targetH   = args["targetHeight"] as? Int
+   let jpegQInt  = (args["jpegQuality"] as? Int) ?? 80
+   let returnMode = (args["returnMode"] as? String) ?? "bytes" // "bytes" | "file"
+
+   let jpegQ = CGFloat(max(40, min(100, jpegQInt))) / 100.0
+
+   asset.loadValuesAsynchronously(forKeys: ["duration", "tracks"]) {
+     var error: NSError?
+     let status = asset.statusOfValue(forKey: "duration", error: &error)
+     guard status == .loaded else {
+       result(FlutterError(code: "LOAD_ERROR", message: error?.localizedDescription, details: nil))
+       return
+     }
+
+     // 1) 计算时间点：未传入时默认第一帧（设为 0 或极小正数以避开个别容差问题）
+     let tUsPrimary: Int64 = {
+       if let u = timeUsArg, u > 0 { return Int64(u) }
+       return 0 // ← 直接 0 代表第一帧
+     }()
+     let tUsFallback: Int64 = 100_000 // 100ms 兜底（极少数容器 0 帧取图会失败）
+
+     // 2) 创建生成器
+     let gen = AVAssetImageGenerator(asset: asset)
+     gen.appliesPreferredTrackTransform = true
+     gen.apertureMode = .encodedPixels
+     // 为了尽量拿到“第一帧”，把容差设为 0
+     gen.requestedTimeToleranceBefore = .zero
+     gen.requestedTimeToleranceAfter  = .zero
+
+     // 计算最大输出尺寸（与你原逻辑一致）
+     if let w = targetW, let h = targetH {
+       gen.maximumSize = CGSize(width: w, height: h)
+     } else if let tr = asset.tracks(withMediaType: .video).first {
+       let s = tr.naturalSize.applying(tr.preferredTransform)
+       let sw = abs(s.width), sh = abs(s.height)
+       if sw > 0, sh > 0 {
+         _ = (sw, sh) // 如需限制最大分辨率，可在此处开启 maximumSize
+       }
+     }
+
+     func emitWithCGImage(_ cg: CGImage) {
+       if returnMode == "bytes" {
+         if let data = self.fastJPEGData(fromCG: cg, quality: jpegQ) {
+           result(FlutterStandardTypedData(bytes: data))
+         } else {
+           result(FlutterError(code: "COVER_ERROR", message: "JPEG 编码失败", details: nil))
+         }
+       } else {
+         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("video_covers", isDirectory: true)
+         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+         let out = dir.appendingPathComponent("cover_\(Int(Date().timeIntervalSince1970 * 1000)).jpg")
+         if let data = self.fastJPEGData(fromCG: cg, quality: jpegQ) {
+           do {
+             try data.write(to: out, options: [])
+             result(out.path)
+           } catch {
+             result(FlutterError(code: "COVER_IO", message: "写入封面失败：\(error.localizedDescription)", details: nil))
+           }
+         } else {
+           result(FlutterError(code: "COVER_ERROR", message: "JPEG 编码失败", details: nil))
+         }
+       }
+     }
+
+     // 3) 先试 0（或调用方传入的 timeUs），失败再试 100ms
+     do {
+       var actual = CMTime.zero
+       let cg = try gen.copyCGImage(at: CMTime(value: tUsPrimary, timescale: 1_000_000), actualTime: &actual)
+       emitWithCGImage(cg)
+     } catch {
+       // Fallback: 某些文件 0 点报错，向后平移到 100ms 再试
+       do {
+         var actual = CMTime.zero
+         let cg = try gen.copyCGImage(at: CMTime(value: tUsFallback, timescale: 1_000_000), actualTime: &actual)
+         emitWithCGImage(cg)
+       } catch {
+         result(FlutterError(code: "COVER_FAIL", message: error.localizedDescription, details: nil))
+       }
+     }
+   }
+ }
 
   // MARK: - 并行 AVAssetImageGenerator（稀疏场景更快，ultraFast 容差=∞ + 两帧预热 + 非原子写）
   private func extractWithGeneratorConcurrent(

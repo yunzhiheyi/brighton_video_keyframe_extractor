@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:video_keyframe_extractor/video_keyframe_extractor.dart';
@@ -8,7 +10,6 @@ import 'package:video_keyframe_extractor/video_keyframe_extractor_platform_inter
 class MockVideoKeyframeExtractorPlatform
     with MockPlatformInterfaceMixin
     implements VideoKeyframeExtractorPlatform {
-
   @override
   Future<String?> getPlatformVersion() => Future.value('mock_1.0.0');
 
@@ -35,6 +36,36 @@ class MockVideoKeyframeExtractorPlatform
   Future<void> clearAllCaches() async {
     // 模拟清理全部缓存，无操作
   }
+
+  @override
+  Future<Uint8List> getVideoCoverBytes(
+      {required String path,
+      int? timeUs,
+      int? targetWidth,
+      int? targetHeight,
+      int jpegQuality = 80,
+      bool applyRotation = true}) {
+    // TODO: implement getVideoCoverBytes
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<String> getVideoCoverFile(
+      {required String path,
+      int? timeUs,
+      int? targetWidth,
+      int? targetHeight,
+      int jpegQuality = 80,
+      bool applyRotation = true}) {
+    // TODO: implement getVideoCoverFile
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<Map<String, dynamic>> getVideoInfo({required String path}) {
+    // TODO: implement getVideoInfo
+    throw UnimplementedError();
+  }
 }
 
 void main() {
@@ -43,7 +74,8 @@ void main() {
 
   group('VideoKeyframeExtractorPlugin', () {
     test('默认实例应为 MethodChannelVideoKeyframeExtractor', () {
-      expect(initialPlatform, isInstanceOf<MethodChannelVideoKeyframeExtractor>());
+      expect(
+          initialPlatform, isInstanceOf<MethodChannelVideoKeyframeExtractor>());
     });
 
     test('getPlatformVersion 应该返回 mock_1.0.0', () async {

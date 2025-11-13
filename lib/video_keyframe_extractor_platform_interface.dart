@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import 'video_keyframe_extractor_method_channel.dart';
@@ -9,7 +10,8 @@ abstract class VideoKeyframeExtractorPlatform extends PlatformInterface {
 
   static final Object _token = Object();
 
-  static VideoKeyframeExtractorPlatform _instance = MethodChannelVideoKeyframeExtractor();
+  static VideoKeyframeExtractorPlatform _instance =
+      MethodChannelVideoKeyframeExtractor();
 
   /// The default instance of [VideoKeyframeExtractorPlatform] to use.
   ///
@@ -27,6 +29,7 @@ abstract class VideoKeyframeExtractorPlatform extends PlatformInterface {
   Future<String?> getPlatformVersion() {
     throw UnimplementedError('platformVersion() has not been implemented.');
   }
+
   // 业务方法
   Future<List<dynamic>> extractKeyFrames({
     required String path,
@@ -36,4 +39,26 @@ abstract class VideoKeyframeExtractorPlatform extends PlatformInterface {
   Future<void> cancel({required String taskId});
   Future<void> clearCache({required String taskId});
   Future<void> clearAllCaches();
+
+  // 新增：获取视频信息
+  Future<Map<String, dynamic>> getVideoInfo({required String path});
+
+  // 新增：获取封面（两种形态都给，便于强类型）
+  Future<Uint8List> getVideoCoverBytes({
+    required String path,
+    int? timeUs,
+    int? targetWidth,
+    int? targetHeight,
+    int jpegQuality = 80,
+    bool applyRotation = true,
+  });
+
+  Future<String> getVideoCoverFile({
+    required String path,
+    int? timeUs,
+    int? targetWidth,
+    int? targetHeight,
+    int jpegQuality = 80,
+    bool applyRotation = true,
+  });
 }

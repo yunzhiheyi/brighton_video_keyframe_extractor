@@ -92,6 +92,39 @@ class VKExtractOptions {
   }..removeWhere((k, v) => v == null);
 }
 
+class VideoInfo {
+  final int width;
+  final int height;
+  final int rotation;
+  final int durationMs;
+  final int bitrate;     // bps
+  final double fps;      // 可能为 0.0
+  final int sizeBytes;   // 可能为 -1
+  final String mimeType;
+
+  const VideoInfo({
+    required this.width,
+    required this.height,
+    required this.rotation,
+    required this.durationMs,
+    required this.bitrate,
+    required this.fps,
+    required this.sizeBytes,
+    required this.mimeType,
+  });
+
+  factory VideoInfo.fromMap(Map<String, dynamic> m) => VideoInfo(
+    width: (m['width'] ?? 0) as int,
+    height: (m['height'] ?? 0) as int,
+    rotation: (m['rotation'] ?? 0) as int,
+    durationMs: (m['durationMs'] ?? 0) as int,
+    bitrate: (m['bitrate'] ?? 0) as int,
+    fps: (m['fps'] ?? 0.0).toDouble(),
+    sizeBytes: (m['sizeBytes'] ?? -1) as int,
+    mimeType: (m['mimeType'] ?? '') as String,
+  );
+}
+
 class VideoKeyframeExtractor {
   /// 模板：获取平台版本
   Future<String?> getPlatformVersion() {
@@ -121,4 +154,50 @@ class VideoKeyframeExtractor {
   static Future<void> clearAllCaches() {
     return VideoKeyframeExtractorPlatform.instance.clearAllCaches();
   }
+
+  /// 视频信息
+  static Future<VideoInfo> getVideoInfo(String path) async {
+    final m = await VideoKeyframeExtractorPlatform.instance.getVideoInfo(path: path);
+    return VideoInfo.fromMap(m);
+    // 如需兼容 iOS 后续实现，这里无需改动
+  }
+
+  /// 封面（bytes）
+  static Future<Uint8List> getVideoCoverBytes(
+      String path, {
+        int? timeUs,
+        int? targetWidth,
+        int? targetHeight,
+        int jpegQuality = 80,
+        bool applyRotation = true,
+      }) {
+    return VideoKeyframeExtractorPlatform.instance.getVideoCoverBytes(
+      path: path,
+      timeUs: timeUs,
+      targetWidth: targetWidth,
+      targetHeight: targetHeight,
+      jpegQuality: jpegQuality,
+      applyRotation: applyRotation,
+    );
+  }
+
+  /// 封面（文件路径）
+  static Future<String> getVideoCoverFile(
+      String path, {
+        int? timeUs,
+        int? targetWidth,
+        int? targetHeight,
+        int jpegQuality = 80,
+        bool applyRotation = true,
+      }) {
+    return VideoKeyframeExtractorPlatform.instance.getVideoCoverFile(
+      path: path,
+      timeUs: timeUs,
+      targetWidth: targetWidth,
+      targetHeight: targetHeight,
+      jpegQuality: jpegQuality,
+      applyRotation: applyRotation,
+    );
+  }
+
 }
