@@ -156,9 +156,8 @@ class VideoKeyframeExtractor {
   }
 
   /// 视频信息
-  static Future<VideoInfo> getVideoInfo(String path) async {
-    final m = await VideoKeyframeExtractorPlatform.instance.getVideoInfo(path: path);
-    return VideoInfo.fromMap(m);
+  static Future<Map<String, dynamic>> getMediaInfo(String path) async {
+    return await VideoKeyframeExtractorPlatform.instance.getMediaInfo(path: path);
     // 如需兼容 iOS 后续实现，这里无需改动
   }
 

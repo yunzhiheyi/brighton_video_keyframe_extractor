@@ -4,6 +4,7 @@ import android.content.ContentResolver
 import android.content.Context
 import android.content.res.AssetFileDescriptor
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.media.MediaMetadataRetriever
 import android.net.Uri
@@ -91,8 +92,11 @@ class VideoKeyframeExtractorPlugin : FlutterPlugin, MethodCallHandler {
         Log.d(TAG, "clearAllCaches result=$ok root=${root.absolutePath}")
         result.success(null)
       }
-    "getVideoInfo" -> handleGetVideoInfo(call, result)
-    "getVideoCover" -> handleGetVideoCover(call, result)
+      "getVideoCover" -> handleGetVideoCover(call, result)
+
+      // 根据 URL 自动判断图片 / 视频 的通用信息接口
+      "getMediaInfo" -> handleGetMediaInfo(call, result)
+
       else -> result.notImplemented()
     }
   }
@@ -168,8 +172,8 @@ class VideoKeyframeExtractorPlugin : FlutterPlugin, MethodCallHandler {
       Log.d(
         TAG,
         "extractKeyFrames(args) => taskId=$taskId, path=$path, count=$count, pageStart=$pageStart, pageSize=$pageSize, " +
-                "targetWidth=$targetWidthArg, targetHeight=$targetHeightArg, maxDecodePixels=$maxDecodePixels, " +
-                "outputMode=$outputMode, preferClosestSync=$preferClosestSync, maxConcurrency=$maxConcurrency, jpegQuality=$jpegQuality, fastMode=$fastMode"
+          "targetWidth=$targetWidthArg, targetHeight=$targetHeightArg, maxDecodePixels=$maxDecodePixels, " +
+          "outputMode=$outputMode, preferClosestSync=$preferClosestSync, maxConcurrency=$maxConcurrency, jpegQuality=$jpegQuality, fastMode=$fastMode"
       )
     }
 
@@ -354,99 +358,97 @@ class VideoKeyframeExtractorPlugin : FlutterPlugin, MethodCallHandler {
     }.start()
   }
 
-    private fun handleGetVideoCover(call: MethodCall, result: Result) {
-        val path = call.argument<String>("path")
-        if (path.isNullOrEmpty()) {
-            result.error("ARG_ERROR", "path 不能为空", null)
-            return
-        }
-        val timeUsArg   = call.argument<Long>("timeUs")     // 可为 null
-        val targetW     = call.argument<Int>("targetWidth") // 可为 null
-        val targetH     = call.argument<Int>("targetHeight")
-        val quality     = (call.argument<Int>("jpegQuality") ?: 80).coerceIn(40, 100)
-        val returnMode  = call.argument<String>("returnMode") ?: "bytes" // "bytes" | "file"
-        val applyRotation = call.argument<Boolean>("applyRotation") ?: true
-
-        var retriever: MediaMetadataRetriever? = null
-        var afd: AssetFileDescriptor? = null
-        try {
-            retriever = MediaMetadataRetriever()
-            if (path.startsWith("content://")) {
-                afd = appContext.contentResolver.openAssetFileDescriptor(Uri.parse(path), "r")
-                if (afd == null) throw IllegalStateException("openAssetFileDescriptor 失败: $path")
-                retriever.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-            } else {
-                val fixed = if (path.startsWith("file://")) Uri.parse(path).path ?: path else path
-                retriever.setDataSource(fixed)
-            }
-
-            val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
-            val srcW       = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
-            val srcH       = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
-            val rotation   = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
-
-            // 解码尺寸（尽量降低像素数以提升速度）
-            val (decW, decH) = fitSizeConsideringRotation(srcW, srcH, rotation, targetW, targetH, /*maxPixels*/ null)
-
-            // === 时间点：默认取第 0 帧 ===
-            // 若传入了 timeUsArg 且 >0 则用之；否则先尝试 0µs，失败再 fallback 到 100ms（100_000µs）
-            val primaryUs = if (timeUsArg != null && timeUsArg >= 0) timeUsArg else 0L
-            val fallbackUs = 100_000L // 100ms 兜底
-
-            fun tryGetFrame(tUs: Long): Bitmap? {
-                return if (decW != null && decH != null) {
-                    // 使用 OPTION_CLOSEST 以尽量贴近指定时间（0µs）；个别容器若 0 无图，再由外层 fallback
-                    retriever.getScaledFrameAtTime(tUs, MediaMetadataRetriever.OPTION_CLOSEST, decW, decH)
-                } else {
-                    retriever.getFrameAtTime(tUs, MediaMetadataRetriever.OPTION_CLOSEST)
-                }
-            }
-
-            var bmp = tryGetFrame(primaryUs)
-            if (bmp == null && timeUsArg == null) {
-                // 仅当默认模式（未显式传 timeUs）时启用兜底，避免覆盖上层明确要求的时间点
-                bmp = tryGetFrame(fallbackUs)
-            }
-            if (bmp == null) throw IllegalStateException("获取封面失败（返回空帧）")
-
-            // 仅在必要时旋转到正向
-            if (applyRotation && rotation != 0 &&
-                shouldApplyRotation(rotation, srcW, srcH, bmp.width, bmp.height)) {
-                val m = Matrix().apply { postRotate(rotation.toFloat()) }
-                bmp = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
-            }
-
-            if (returnMode == "bytes") {
-                val baos = ByteArrayOutputStream(256 * 1024)
-                bmp.compress(Bitmap.CompressFormat.JPEG, quality, baos)
-                val bytes = baos.toByteArray()
-                baos.close()
-                bmp.recycle()
-                result.success(bytes)
-            } else {
-                val outDir = File(appContext.cacheDir, "video_covers").apply { mkdirs() }
-                val out = File(outDir, "cover_${System.currentTimeMillis()}.jpg")
-                FileOutputStream(out).use { fos ->
-                    BufferedOutputStream(fos, 64 * 1024).use { bos ->
-                        bmp.compress(Bitmap.CompressFormat.JPEG, quality, bos)
-                        bos.flush()
-                    }
-                }
-                bmp.recycle()
-                result.success(out.absolutePath)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "getVideoCover error: ${e.message}", e)
-            result.error("COVER_ERROR", e.message, null)
-        } finally {
-            try { retriever?.release() } catch (_: Throwable) {}
-            try { afd?.close() } catch (_: Throwable) {}
-        }
+  private fun handleGetVideoCover(call: MethodCall, result: Result) {
+    val path = call.argument<String>("path")
+    if (path.isNullOrEmpty()) {
+      result.error("ARG_ERROR", "path 不能为空", null)
+      return
     }
+    val timeUsArg   = call.argument<Long>("timeUs")     // 可为 null
+    val targetW     = call.argument<Int>("targetWidth") // 可为 null
+    val targetH     = call.argument<Int>("targetHeight")
+    val quality     = (call.argument<Int>("jpegQuality") ?: 80).coerceIn(40, 100)
+    val returnMode  = call.argument<String>("returnMode") ?: "bytes" // "bytes" | "file"
+    val applyRotation = call.argument<Boolean>("applyRotation") ?: true
 
+    var retriever: MediaMetadataRetriever? = null
+    var afd: AssetFileDescriptor? = null
+    try {
+      retriever = MediaMetadataRetriever()
+      if (path.startsWith("content://")) {
+        afd = appContext.contentResolver.openAssetFileDescriptor(Uri.parse(path), "r")
+        if (afd == null) throw IllegalStateException("openAssetFileDescriptor 失败: $path")
+        retriever.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+      } else {
+        val fixed = if (path.startsWith("file://")) Uri.parse(path).path ?: path else path
+        retriever.setDataSource(fixed)
+      }
 
+      val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+      val srcW       = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+      val srcH       = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+      val rotation   = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
 
-    // ================= 工具方法 =================
+      // 解码尺寸（尽量降低像素数以提升速度）
+      val (decW, decH) = fitSizeConsideringRotation(srcW, srcH, rotation, targetW, targetH, /*maxPixels*/ null)
+
+      // === 时间点：默认取第 0 帧 ===
+      // 若传入了 timeUsArg 且 >0 则用之；否则先尝试 0µs，失败再 fallback 到 100ms（100_000µs）
+      val primaryUs = if (timeUsArg != null && timeUsArg >= 0) timeUsArg else 0L
+      val fallbackUs = 100_000L // 100ms 兜底
+
+      fun tryGetFrame(tUs: Long): Bitmap? {
+        return if (decW != null && decH != null) {
+          // 使用 OPTION_CLOSEST 以尽量贴近指定时间（0µs）；个别容器若 0 无图，再由外层 fallback
+          retriever.getScaledFrameAtTime(tUs, MediaMetadataRetriever.OPTION_CLOSEST, decW, decH)
+        } else {
+          retriever.getFrameAtTime(tUs, MediaMetadataRetriever.OPTION_CLOSEST)
+        }
+      }
+
+      var bmp = tryGetFrame(primaryUs)
+      if (bmp == null && timeUsArg == null) {
+        // 仅当默认模式（未显式传 timeUs）时启用兜底，避免覆盖上层明确要求的时间点
+        bmp = tryGetFrame(fallbackUs)
+      }
+      if (bmp == null) throw IllegalStateException("获取封面失败（返回空帧）")
+
+      // 仅在必要时旋转到正向
+      if (applyRotation && rotation != 0 &&
+        shouldApplyRotation(rotation, srcW, srcH, bmp.width, bmp.height)) {
+        val m = Matrix().apply { postRotate(rotation.toFloat()) }
+        bmp = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
+      }
+
+      if (returnMode == "bytes") {
+        val baos = ByteArrayOutputStream(256 * 1024)
+        bmp.compress(Bitmap.CompressFormat.JPEG, quality, baos)
+        val bytes = baos.toByteArray()
+        baos.close()
+        bmp.recycle()
+        result.success(bytes)
+      } else {
+        val outDir = File(appContext.cacheDir, "video_covers").apply { mkdirs() }
+        val out = File(outDir, "cover_${System.currentTimeMillis()}.jpg")
+        FileOutputStream(out).use { fos ->
+          BufferedOutputStream(fos, 64 * 1024).use { bos ->
+            bmp.compress(Bitmap.CompressFormat.JPEG, quality, bos)
+            bos.flush()
+          }
+        }
+        bmp.recycle()
+        result.success(out.absolutePath)
+      }
+    } catch (e: Exception) {
+      Log.e(TAG, "getVideoCover error: ${e.message}", e)
+      result.error("COVER_ERROR", e.message, null)
+    } finally {
+      try { retriever?.release() } catch (_: Throwable) {}
+      try { afd?.close() } catch (_: Throwable) {}
+    }
+  }
+
+  // ================= 工具方法 =================
 
   /** Bitmap 压缩为 JPEG 字节数组（备用） */
   private fun Bitmap.toJpegBytes(quality: Int): ByteArray {
@@ -455,13 +457,8 @@ class VideoKeyframeExtractorPlugin : FlutterPlugin, MethodCallHandler {
     return out.toByteArray()
   }
 
-    private fun handleGetVideoInfo(call: MethodCall, result: Result) {
-        val path = call.argument<String>("path")
-        if (path.isNullOrEmpty()) {
-            result.error("ARG_ERROR", "path 不能为空", null)
-            return
-        }
-
+    /** 内部共用：根据 path 获取视频信息（不直接触达 Flutter） */
+    private fun getVideoInfoInternal(path: String, mimeHint: String? = null): Map<String, Any?> {
         var retriever: MediaMetadataRetriever? = null
         var afd: AssetFileDescriptor? = null
         try {
@@ -475,19 +472,41 @@ class VideoKeyframeExtractorPlugin : FlutterPlugin, MethodCallHandler {
                 retriever.setDataSource(fixed)
             }
 
-            val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
-            val width      = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
-            val height     = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
-            val rotation   = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
-            val bitrate    = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)?.toLongOrNull() ?: 0L
-            val mime       = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE) ?: ""
+            val durationMs = retriever.extractMetadata(
+                MediaMetadataRetriever.METADATA_KEY_DURATION
+            )?.toLongOrNull() ?: 0L
 
-            // 优先用捕获帧率（部分机型/编码器才有）
+            val width = retriever.extractMetadata(
+                MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH
+            )?.toIntOrNull() ?: 0
+
+            val height = retriever.extractMetadata(
+                MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT
+            )?.toIntOrNull() ?: 0
+
+            val rotation = retriever.extractMetadata(
+                MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION
+            )?.toIntOrNull() ?: 0
+
+            val bitrate = retriever.extractMetadata(
+                MediaMetadataRetriever.METADATA_KEY_BITRATE
+            )?.toLongOrNull() ?: 0L
+
+            val mimeMeta = retriever.extractMetadata(
+                MediaMetadataRetriever.METADATA_KEY_MIMETYPE
+            ) ?: ""
+            val finalMime = when {
+                mimeMeta.isNotBlank() -> mimeMeta
+                !mimeHint.isNullOrBlank() -> mimeHint
+                else -> ""
+            }
+
+            // 优先用捕获帧率
             var fps: Double? = retriever.extractMetadata(
                 MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE
             )?.toDoubleOrNull()
 
-            // 如果没有，尝试用帧数/时长估算（API 28+ 才可能有帧数）
+            // 没有就尝试帧数 / 时长
             if (fps == null) {
                 val frameCountStr = retriever.extractMetadata(
                     MediaMetadataRetriever.METADATA_KEY_VIDEO_FRAME_COUNT
@@ -500,59 +519,55 @@ class VideoKeyframeExtractorPlugin : FlutterPlugin, MethodCallHandler {
 
             val fileSizeBytes = getFileSizeBytes(path)
 
-            val map = hashMapOf<String, Any?>(
+            return hashMapOf(
                 "width" to width,
                 "height" to height,
                 "rotation" to rotation,
                 "durationMs" to durationMs,
-                "bitrate" to bitrate,          // bps
-                "fps" to (fps ?: 0.0),         // 可能取不到，给 0.0
-                "sizeBytes" to fileSizeBytes,  // 可能取不到时为 -1
-                "mimeType" to mime
+                "bitrate" to bitrate,
+                "fps" to (fps ?: 0.0),
+                "sizeBytes" to fileSizeBytes,
+                "mimeType" to finalMime
             )
-            result.success(map)
-        } catch (e: Exception) {
-            Log.e(TAG, "getVideoInfo error: ${e.message}", e)
-            result.error("INFO_ERROR", e.message, null)
         } finally {
             try { retriever?.release() } catch (_: Throwable) {}
             try { afd?.close() } catch (_: Throwable) {}
         }
     }
 
-    /** 获取文件大小，支持 file://、content://、普通路径 */
-    private fun getFileSizeBytes(path: String): Long {
-        return try {
-            if (path.startsWith("content://")) {
-                val uri = Uri.parse(path)
-                // 优先查询 _size
-                appContext.contentResolver.query(uri, arrayOf("_size"), null, null, null)?.use { c ->
-                    if (c.moveToFirst()) {
-                        val idx = c.getColumnIndex("_size")
-                        if (idx >= 0) {
-                            val v = c.getLong(idx)
-                            if (v > 0) return v
-                        }
-                    }
-                }
-                // 退回到 AFD.length
-                appContext.contentResolver.openAssetFileDescriptor(uri, "r")?.use { afd ->
-                    val len = afd.length
-                    if (len >= 0) return len
-                }
-                -1
-            } else {
-                val fixed = if (path.startsWith("file://")) Uri.parse(path).path ?: path else path
-                File(fixed).length()
+
+  /** 获取文件大小，支持 file://、content://、普通路径 */
+  private fun getFileSizeBytes(path: String): Long {
+    return try {
+      if (path.startsWith("content://")) {
+        val uri = Uri.parse(path)
+        // 优先查询 _size
+        appContext.contentResolver.query(uri, arrayOf("_size"), null, null, null)?.use { c ->
+          if (c.moveToFirst()) {
+            val idx = c.getColumnIndex("_size")
+            if (idx >= 0) {
+              val v = c.getLong(idx)
+              if (v > 0) return v
             }
-        } catch (t: Throwable) {
-            Log.w(TAG, "getFileSizeBytes fail: ${t.message}")
-            -1
+          }
         }
+        // 退回到 AFD.length
+        appContext.contentResolver.openAssetFileDescriptor(uri, "r")?.use { afd ->
+          val len = afd.length
+          if (len >= 0) return len
+        }
+        -1
+      } else {
+        val fixed = if (path.startsWith("file://")) Uri.parse(path).path ?: path else path
+        File(fixed).length()
+      }
+    } catch (t: Throwable) {
+      Log.w(TAG, "getFileSizeBytes fail: ${t.message}")
+      -1
     }
+  }
 
-
-    /**
+  /**
    * 依据 rotation 先确定“显示方向”的宽高，再按 target/maxPixels 计算缩放；
    * 若为 90/270°，最后交换回“解码方向”的宽高传给 getScaledFrameAtTime，避免二次缩放损耗。
    */
@@ -631,5 +646,154 @@ class VideoKeyframeExtractorPlugin : FlutterPlugin, MethodCallHandler {
       arr[i] = t
     }
     return arr
+  }
+
+
+  // 粗略 MIME 检测，只关心 image/* 与 video/*，优先用 contentResolver.getType
+  private fun detectMimeType(path: String): String {
+    return try {
+      if (path.startsWith("content://")) {
+        val uri = Uri.parse(path)
+        resolver?.getType(uri)?.let { return it }
+      }
+
+      val fixed = if (path.startsWith("file://")) {
+        Uri.parse(path).path ?: path
+      } else {
+        path
+      }
+
+      val ext = fixed.substringAfterLast('.', "").lowercase()
+      when (ext) {
+        // image
+        "png"           -> "image/png"
+        "jpg", "jpeg"   -> "image/jpeg"
+        "gif"           -> "image/gif"
+        "webp"          -> "image/webp"
+        "bmp"           -> "image/bmp"
+        "heic"          -> "image/heic"
+        "heif"          -> "image/heif"
+        "tif","tiff"    -> "image/tiff"
+        "ico"           -> "image/x-icon"
+
+        // video
+        "mp4","m4v"     -> "video/mp4"
+        "mov"           -> "video/quicktime"
+        "mkv"           -> "video/x-matroska"
+        "webm"          -> "video/webm"
+        "avi"           -> "video/x-msvideo"
+        "wmv"           -> "video/x-ms-wmv"
+        "3gp"           -> "video/3gpp"
+        "3g2"           -> "video/3gpp2"
+        "flv"           -> "video/x-flv"
+        "f4v"           -> "video/x-f4v"
+        "mpeg","mpg"    -> "video/mpeg"
+        "ts","mts","m2ts" -> "video/MP2T"
+        "vob"           -> "video/x-ms-vob"
+        "ogv"           -> "video/ogg"
+        "rm"            -> "application/vnd.rn-realmedia"
+        "rmvb"          -> "application/vnd.rn-realmedia-vbr"
+        "asf"           -> "video/x-ms-asf"
+        "mxf"           -> "application/mxf"
+        "divx"          -> "video/divx"
+        "xvid"          -> "video/x-xvid"
+
+        else            -> "application/octet-stream"
+      }
+    } catch (t: Throwable) {
+      Log.w(TAG, "detectMimeType fail: ${t.message}")
+      "application/octet-stream"
+    }
+  }
+
+  /** 读取图片资源信息：宽、高、大小、mimeType（只解 bounds） **/
+  private fun collectImageInfo(path: String, mimeHint: String? = null): Map<String, Any?> {
+    val fileSizeBytes = getFileSizeBytes(path)
+
+    val opts = BitmapFactory.Options().apply {
+      inJustDecodeBounds = true
+    }
+
+    var mimeType: String? = mimeHint
+
+    try {
+      if (path.startsWith("content://")) {
+        val uri = Uri.parse(path)
+        appContext.contentResolver.openInputStream(uri)?.use { input ->
+          BitmapFactory.decodeStream(input, null, opts)
+          if (!opts.outMimeType.isNullOrBlank()) {
+            mimeType = opts.outMimeType
+          }
+        }
+      } else {
+        val fixed = if (path.startsWith("file://")) Uri.parse(path).path ?: path else path
+        BitmapFactory.decodeFile(fixed, opts)
+        if (!opts.outMimeType.isNullOrBlank()) {
+          mimeType = opts.outMimeType
+        }
+      }
+    } catch (t: Throwable) {
+      Log.w(TAG, "collectImageInfo decode bounds fail: ${t.message}")
+    }
+
+    if (mimeType.isNullOrBlank()) {
+      mimeType = mimeHint ?: "application/octet-stream"
+    }
+
+    return hashMapOf<String, Any?>(
+      "width" to opts.outWidth,
+      "height" to opts.outHeight,
+      "sizeBytes" to fileSizeBytes,
+      "mimeType" to mimeType
+    )
+  }
+
+  /** 通用：根据 URL 判断是图片还是视频，返回对应信息 **/
+  private fun handleGetMediaInfo(call: MethodCall, result: Result) {
+    val path = call.argument<String>("path")
+    if (path.isNullOrEmpty()) {
+      result.error("ARG_ERROR", "path 不能为空", null)
+      return
+    }
+
+    try {
+      val mime = detectMimeType(path)
+      Log.d(TAG, "getMediaInfo path=$path mime=$mime")
+
+      val map: Map<String, Any?> = when {
+        mime.startsWith("image/") -> {
+          collectImageInfo(path, mime)
+        }
+        mime.startsWith("video/") -> {
+            val info = getVideoInfoInternal(path, mime)
+            hashMapOf<String, Any?>(
+                "width"     to (info["width"] ?: 0),
+                "height"    to (info["height"] ?: 0),
+                "rotation" to (info["rotation"] ?: 0),
+                "durationMs" to (info["durationMs"] ?: 0),
+                "bitrate" to (info["bitrate"] ?: 0),
+                "fps" to (info["fps"] ?: 0),
+                "sizeBytes" to (info["sizeBytes"] ?: -1),
+                "mimeType"  to (info["mimeType"] ?: mime)
+
+            )
+
+        }
+        else -> {
+          val fileSizeBytes = getFileSizeBytes(path)
+          hashMapOf<String, Any?>(
+            "width" to 0,
+            "height" to 0,
+            "sizeBytes" to fileSizeBytes,
+            "mimeType" to mime
+          )
+        }
+      }
+
+      result.success(map)
+    } catch (e: Exception) {
+      Log.e(TAG, "getMediaInfo error: ${e.message}", e)
+      result.error("MEDIA_INFO_ERROR", e.message, null)
+    }
   }
 }

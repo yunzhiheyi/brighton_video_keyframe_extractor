@@ -40,10 +40,10 @@ abstract class VideoKeyframeExtractorPlatform extends PlatformInterface {
   Future<void> clearCache({required String taskId});
   Future<void> clearAllCaches();
 
-  // 新增：获取视频信息
-  Future<Map<String, dynamic>> getVideoInfo({required String path});
+  // 获取资源信息
+  Future<Map<String, dynamic>> getMediaInfo({required String path});
 
-  // 新增：获取封面（两种形态都给，便于强类型）
+  // 获取封面（两种形态都给，便于强类型）
   Future<Uint8List> getVideoCoverBytes({
     required String path,
     int? timeUs,

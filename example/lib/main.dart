@@ -59,7 +59,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _pickVideo() async {
     final res = await FilePicker.platform
-        .pickFiles(type: FileType.video, allowMultiple: false);
+        .pickFiles(type: FileType.media, allowMultiple: false);
     if (res != null && res.files.single.path != null) {
       final oldTask = _taskId;
       setState(() {
@@ -202,12 +202,12 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  // ========== 新增：获取视频信息 ==========
-  Future<void> _getVideoInfo() async {
+  // ========== 新增：获取资源信息 ==========
+  Future<void> _getMediaInfo() async {
     if (_videoPath == null) return;
     setState(() => _busy = true);
     try {
-      final info = await _channel.invokeMethod<Map>('getVideoInfo', {
+      final info = await _channel.invokeMethod<Map>('getMediaInfo', {
         'path': _videoPath!,
       });
 
@@ -370,7 +370,7 @@ class _HomePageState extends State<HomePage> {
                   FilledButton.icon(
                     onPressed: _busy ? null : _pickVideo,
                     icon: const Icon(Icons.video_file),
-                    label: const Text('选择视频'),
+                    label: const Text('选择资源'),
                   ),
                   FilledButton.icon(
                     onPressed: canRun ? _extract : null,
@@ -383,9 +383,9 @@ class _HomePageState extends State<HomePage> {
                     label: const Text('获取封面'),
                   ),
                   FilledButton.icon(
-                    onPressed: canRun ? _getVideoInfo : null,
+                    onPressed: canRun ? _getMediaInfo : null,
                     icon: const Icon(Icons.info_outline),
-                    label: const Text('获取视频信息'),
+                    label: const Text('获取资源信息'),
                   ),
                   OutlinedButton.icon(
                     onPressed: _clearCache,
@@ -522,21 +522,23 @@ class _HomePageState extends State<HomePage> {
     final rows = <TableRow>[
       _kvRow('width', fmt(info['width'])),
       _kvRow('height', fmt(info['height'])),
+      if(info['rotation'] != null)
       _kvRow('rotation', fmt(info['rotation'])),
 
       // 时长：原毫秒 + 人类可读
+      if(info['durationMs'] != null)
       _kvRow(
         'duration',
         durationMs == null ? '${info['durationMs']}' :
         '${durationMs} ms  (${_humanDurationMs(durationMs)})',
       ),
-
+     if(info['bitrate'] != null)
       _kvRow(
         'bitrate',
         encoderBps == null ? '${info['bitrate']}' :
         '${encoderBps} bps  (${_humanBps(encoderBps)})',
       ),
-
+      if(info['fps'] != null)
       _kvRow('fps', fmt(info['fps'])),
 
       // 大小：原始字节 + 人类可读（比如 123.45 MB）

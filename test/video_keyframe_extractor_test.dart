@@ -62,7 +62,7 @@ class MockVideoKeyframeExtractorPlatform
   }
 
   @override
-  Future<Map<String, dynamic>> getVideoInfo({required String path}) {
+  Future<Map<String, dynamic>> getMediaInfo({required String path}) {
     // TODO: implement getVideoInfo
     throw UnimplementedError();
   }

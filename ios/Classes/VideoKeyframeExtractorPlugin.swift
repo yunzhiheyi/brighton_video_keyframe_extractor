@@ -80,35 +80,27 @@ public class VideoKeyframeExtractorPlugin: NSObject, FlutterPlugin {
       }
       result(nil)
 
-    case "getVideoInfo":
-      guard
-        let args = call.arguments as? [String: Any],
-        let path = args["path"] as? String, !path.isEmpty
-      else {
-        result(FlutterError(code: "ARG_ERROR", message: "path 不能为空", details: nil))
-        return
-      }
-      // 背景执行，避免阻塞 UI
-      DispatchQueue.global(qos: .userInitiated).async {
-        do {
-          let info = try self.handleGetVideoInfo(path: path)
-          let map: [String: Any] = [
-            "width": info.width,
-            "height": info.height,
-            "rotation": info.rotation,
-            "durationMs": info.durationMs,
-            "bitrate": info.bitrate,
-            "fps": info.fps,
-            "sizeBytes": info.sizeBytes,
-            "mimeType": info.mimeType
-          ]
-          DispatchQueue.main.async { result(map) }
-        } catch {
-          DispatchQueue.main.async {
-            result(FlutterError(code: "VIDEO_INFO_ERROR", message: error.localizedDescription, details: nil))
-          }
-        }
-      }
+    case "getMediaInfo":
+       guard
+         let args = call.arguments as? [String: Any],
+         let path = args["path"] as? String
+         else {
+             result(FlutterError(code: "ARG_ERROR", message: "path 不能为空", details: nil))
+             return
+         }
+
+         DispatchQueue.global(qos: .userInitiated).async {
+             do {
+                 let map = try self.getMediaInfo(path: path)
+                 DispatchQueue.main.async { result(map) }
+             } catch {
+                 DispatchQueue.main.async {
+                     result(FlutterError(code: "MEDIA_INFO_ERROR",
+                                         message: error.localizedDescription,
+                                         details: nil))
+                 }
+             }
+         }
 
     case "getVideoCover":
       guard let args = call.arguments as? [String: Any],
@@ -289,167 +281,419 @@ public class VideoKeyframeExtractorPlugin: NSObject, FlutterPlugin {
     }
   }
 
-  // MARK: - 获取视频信息（✅ 单一定义，类作用域）
+  // MARK: - 通用资源信息获取（图片 / 视频）
+  private func getMediaInfo(path: String) throws -> [String: Any] {
+      let url = coerceFileURL(from: path)
+
+      let mime = bestEffortMimeType(for: url) ?? "application/octet-stream"
+
+      // === 图片类型 ===
+      if mime.hasPrefix("image/") {
+          guard let data = try? Data(contentsOf: url),
+                let img = UIImage(data: data) else {
+              throw NSError(domain: "MediaInfo", code: -10,
+                            userInfo: [NSLocalizedDescriptionKey: "无法读取图片"])
+          }
+
+          return [
+              "width": Int(img.size.width),
+              "height": Int(img.size.height),
+              "sizeBytes": data.count,
+              "mimeType": mime,
+              "format": url.pathExtension.lowercased()
+          ]
+      }
+      // === 视频类型 ===
+      if mime.hasPrefix("video/") {
+          let v = try handleGetVideoInfo(path: path)
+          return [
+              "width": v.width,
+              "height": v.height,
+              "rotation": v.rotation,
+              "durationMs": v.durationMs,
+              "bitrate": v.bitrate,
+              "fps": v.fps,
+              "sizeBytes": v.sizeBytes,
+              "mimeType": v.mimeType
+          ]
+      }
+
+      // === 其他资源类型 ===
+      let fileSize = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? -1
+
+      return [
+          "type": "unknown",
+          "sizeBytes": fileSize,
+          "mimeType": mime
+      ]
+  }
+
+
+  // MARK: - 获取视频信息（优化版，保持同步接口，但内部已无同步阻塞等待）
   private func handleGetVideoInfo(path: String,
                                   fpsProbeSeconds: Double = 2.0,
                                   fpsProbeMaxFrames: Int = 200) throws -> VideoInfoResult {
 
-    let url = coerceFileURL(from: path)
+      let url = coerceFileURL(from: path)
+      let asset = AVURLAsset(url: url)
+      let keys = ["duration", "tracks"]
 
-    let asset = AVURLAsset(url: url)
-    let keys = ["duration", "tracks"]
-    var loadErr: NSError?
-    let group = DispatchGroup()
-    group.enter()
-    asset.loadValuesAsynchronously(forKeys: keys) { group.leave() }
-    group.wait()
+      // 🔒 使用信号量来同步等待异步加载完成（替代 group.wait）
+      var loadError: NSError?
+      var loadStatus: AVKeyValueStatus = .failed
+      var trackStatus: AVKeyValueStatus = .failed
+      var loadedKeys: [String: AVKeyValueStatus] = [:]
 
-    for k in keys {
-      let st = asset.statusOfValue(forKey: k, error: &loadErr)
-      if st != .loaded {
-        throw NSError(domain: "VideoInfo", code: -1,
-                      userInfo: [NSLocalizedDescriptionKey: loadErr?.localizedDescription ?? "Load \(k) failed"])
+      let semaphore = DispatchSemaphore(value: 0)
+
+      // 在后台队列异步加载
+      DispatchQueue.global(qos: .userInitiated).async {
+          asset.loadValuesAsynchronously(forKeys: keys)
+
+          // 检查每个 key 的加载状态
+          for key in keys {
+              let status = asset.statusOfValue(forKey: key, error: &loadError)
+              loadedKeys[key] = status
+              if status != .loaded {
+                  DispatchQueue.main.async {
+                      semaphore.signal() // 确保信号量最终被触发
+                  }
+                  return
+              }
+          }
+
+          // 所有 key 都加载成功
+          DispatchQueue.main.async {
+              semaphore.signal()
+          }
       }
-    }
 
-    guard let track = asset.tracks(withMediaType: .video).first else {
-      throw NSError(domain: "VideoInfo", code: -2,
-                    userInfo: [NSLocalizedDescriptionKey: "No video track"])
-    }
+      // 当前线程等待加载完成（替代 group.wait，但发生在后台加载之后）
+      semaphore.wait()
 
-    // 旋转角（0/90/180/270）
-    let t = track.preferredTransform
-    let rotation: Int = {
-      if t.a == 0 && t.b == 1 && t.c == -1 && t.d == 0 { return 90 }
-      if t.a == 0 && t.b == -1 && t.c == 1 && t.d == 0 { return 270 }
-      if t.a == -1 && t.b == 0 && t.c == 0 && t.d == -1 { return 180 }
-      return 0
-    }()
-
-    // 应用旋转后的显示宽高
-    let displayed = track.naturalSize.applying(track.preferredTransform)
-    let width  = Int(abs(displayed.width.rounded()))
-    let height = Int(abs(displayed.height.rounded()))
-
-    let durationSec = CMTimeGetSeconds(asset.duration)
-    let durationMs = Int((durationSec.isFinite ? durationSec : 0) * 1000)
-
-    // 文件大小
-    let sizeBytes: Int = {
-      guard url.isFileURL else { return -1 }
-      return (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? -1
-    }()
-
-    // 码率
-    let overallBitrate = (durationSec > 0 && sizeBytes > 0) ? Int(Double(sizeBytes) * 8.0 / durationSec) : 0
-//     let encoderBitrate = Int(track.estimatedDataRate) // bps
-
-    // FPS：nominal → minFrameDuration → Reader 探测
-    let fps: Double = {
-      let n = Double(track.nominalFrameRate)
-      if n > 0 { return n }
-      if track.minFrameDuration.isValid, track.minFrameDuration.value > 0 {
-        let fd = CMTimeGetSeconds(track.minFrameDuration)
-        if fd > 0 { return 1.0 / fd }
+      // 检查是否加载成功
+      for key in keys {
+          let status = asset.statusOfValue(forKey: key, error: &loadError)
+          if status != .loaded {
+              throw NSError(
+                  domain: "VideoInfo",
+                  code: -1,
+                  userInfo: [NSLocalizedDescriptionKey: loadError?.localizedDescription ?? "加载 \(key) 失败"]
+              )
+          }
       }
-      guard fpsProbeSeconds > 0 else { return 0 }
-      do {
-        let reader = try AVAssetReader(asset: asset)
-        let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
-          kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
-          kCVPixelBufferIOSurfacePropertiesKey as String: [:]
-        ])
-        output.alwaysCopiesSampleData = false
-        if reader.canAdd(output) { reader.add(output) }
-        let sampleWindow = min(durationSec, fpsProbeSeconds)
-        reader.timeRange = CMTimeRange(start: .zero,
-                                       duration: CMTime(seconds: sampleWindow, preferredTimescale: 1000))
-        guard reader.startReading() else { return 0 }
-        var frames = 0
-        while reader.status == .reading, frames < fpsProbeMaxFrames {
-          autoreleasepool { if output.copyNextSampleBuffer() != nil { frames += 1 } }
-        }
-        return sampleWindow > 0 ? Double(frames) / sampleWindow : 0
-      } catch { return 0 }
-    }()
 
-    let mimeType = bestEffortMimeType(for: url) ?? "application/octet-stream"
+      // 继续原有逻辑 —— 获取视频轨道等信息（全部同步执行，无阻塞）
+      guard let track = asset.tracks(withMediaType: .video).first else {
+          throw NSError(domain: "VideoInfo", code: -2, userInfo: [NSLocalizedDescriptionKey: "没有找到视频轨道"])
+      }
 
-    return VideoInfoResult(
-      width: width,
-      height: height,
-      rotation: rotation,
-      durationMs: durationMs,
-      bitrate: overallBitrate,
-      fps: fps,
-      sizeBytes: sizeBytes,
-      mimeType: mimeType
-    )
+      // 旋转角度
+      let t = track.preferredTransform
+      let rotation: Int = {
+          if t.a == 0 && t.b == 1 && t.c == -1 && t.d == 0 { return 90 }
+          if t.a == 0 && t.b == -1 && t.c == 1 && t.d == 0 { return 270 }
+          if t.a == -1 && t.b == 0 && t.c == 0 && t.d == -1 { return 180 }
+          return 0
+      }()
+
+      let displayed = track.naturalSize.applying(t)
+      let width = Int(abs(displayed.width.rounded()))
+      let height = Int(abs(displayed.height.rounded()))
+
+      let durationSec = CMTimeGetSeconds(asset.duration)
+      let durationMs = Int((durationSec.isFinite ? durationSec : 0) * 1000)
+
+      // 文件大小
+      let sizeBytes: Int = {
+          guard url.isFileURL else { return -1 }
+          return (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? -1
+      }()
+
+      // 码率
+      let overallBitrate = (durationSec > 0 && sizeBytes > 0) ? Int(Double(sizeBytes) * 8.0 / durationSec) : 0
+
+      // FPS
+      let fps: Double = {
+          let n = Double(track.nominalFrameRate)
+          if n > 0 { return n }
+          if track.minFrameDuration.isValid, track.minFrameDuration.value > 0 {
+              let fd = CMTimeGetSeconds(track.minFrameDuration)
+              if fd > 0 { return 1.0 / fd }
+          }
+          guard fpsProbeSeconds > 0 else { return 0 }
+          do {
+              let reader = try AVAssetReader(asset: asset)
+              let output = AVAssetReaderTrackOutput(
+                  track: track,
+                  outputSettings: [
+                      kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+                      kCVPixelBufferIOSurfacePropertiesKey as String: [:]
+                  ]
+              )
+              output.alwaysCopiesSampleData = false
+              if reader.canAdd(output) { reader.add(output) }
+              let sampleWindow = min(durationSec, fpsProbeSeconds)
+              reader.timeRange = CMTimeRange(start: .zero, duration: CMTime(seconds: sampleWindow, preferredTimescale: 1000))
+              guard reader.startReading() else { return 0 }
+              var frames = 0
+              while reader.status == .reading, frames < fpsProbeMaxFrames {
+                  autoreleasepool {
+                      if output.copyNextSampleBuffer() != nil { frames += 1 }
+                  }
+              }
+              return sampleWindow > 0 ? Double(frames) / sampleWindow : 0
+          } catch {
+              return 0
+          }
+      }()
+
+      let mimeType = bestEffortMimeType(for: url) ?? "application/octet-stream"
+
+      return VideoInfoResult(
+          width: width,
+          height: height,
+          rotation: rotation,
+          durationMs: durationMs,
+          bitrate: overallBitrate,
+          fps: fps,
+          sizeBytes: sizeBytes,
+          mimeType: mimeType
+      )
   }
 
   // MARK: - MIME 推断（UTType → 扩展名 → 头部嗅探 → 兜底）
-  private func bestEffortMimeType(for url: URL) -> String? {
-    // 1) 直接用 typeIdentifier
-    if let values = try? url.resourceValues(forKeys: [.typeIdentifierKey]),
-       let typeId = values.typeIdentifier {
-      if #available(iOS 14.0, *) {
-        if let ut = UTType(typeId), let mt = ut.preferredMIMEType { return mt }
-      } else {
-        if let mt = UTTypeCopyPreferredTagWithClass(typeId as CFString, kUTTagClassMIMEType)?
-          .takeRetainedValue() { return mt as String }
+   private func bestEffortMimeType(for url: URL) -> String? {
+
+     // ---------- 1) 本地 URL：先試 typeIdentifier ----------
+     if url.isFileURL,
+        let values = try? url.resourceValues(forKeys: [.typeIdentifierKey]),
+        let typeId = values.typeIdentifier {
+
+       if #available(iOS 14.0, *) {
+         if let ut = UTType(typeId),
+            let mt = ut.preferredMIMEType,
+            (mt.hasPrefix("image/") || mt.hasPrefix("video/")) {
+           return mt
+         }
+       } else {
+         if let mt = UTTypeCopyPreferredTagWithClass(typeId as CFString, kUTTagClassMIMEType)?
+           .takeRetainedValue() as String?,
+            (mt.hasPrefix("image/") || mt.hasPrefix("video/")) {
+           return mt
+         }
+       }
+     }
+
+     // ---------- 2) UTType / 副檔名 ----------
+     let ext = url.pathExtension.lowercased()
+     if !ext.isEmpty {
+       // 2-1) 用 UTType 解析副檔名
+       if #available(iOS 14.0, *) {
+         if let ut = UTType(filenameExtension: ext),
+            let mt = ut.preferredMIMEType,
+            (mt.hasPrefix("image/") || mt.hasPrefix("video/")) {
+           return mt
+         }
+       } else {
+         let extCF = ext as CFString
+         if let uti = UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, extCF, nil)?
+           .takeRetainedValue(),
+            let mt = UTTypeCopyPreferredTagWithClass(uti, kUTTagClassMIMEType)?
+           .takeRetainedValue() as String?,
+            (mt.hasPrefix("image/") || mt.hasPrefix("video/")) {
+           return mt
+         }
+       }
+
+       // 2-2) 副檔名 fallback：手工處理常見圖片 / 視頻
+       // --- 圖片 ---
+       switch ext {
+         case "png":           return "image/png"
+         case "jpg", "jpeg":   return "image/jpeg"
+         case "gif":           return "image/gif"
+         case "webp":          return "image/webp"
+         case "bmp":           return "image/bmp"
+         case "heic":          return "image/heic"
+         case "heif":          return "image/heif"
+         case "tif", "tiff":   return "image/tiff"
+         case "ico":           return "image/x-icon"
+         default: break
+       }
+
+       // --- 視頻 ---
+       switch ext {
+         case "mp4", "m4v":       return "video/mp4"
+         case "mov":              return "video/quicktime"
+         case "mkv":              return "video/x-matroska"
+         case "webm":             return "video/webm"
+         case "avi":              return "video/x-msvideo"
+         case "wmv":              return "video/x-ms-wmv"
+         case "3gp":              return "video/3gpp"
+         case "3g2":              return "video/3gpp2"
+         case "flv":              return "video/x-flv"
+         case "f4v":              return "video/x-f4v"
+         case "mpeg", "mpg":      return "video/mpeg"
+         case "ts", "mts", "m2ts":return "video/MP2T"
+         case "vob":              return "video/x-ms-vob"
+         case "ogv":              return "video/ogg"
+         case "rm":               return "application/vnd.rn-realmedia"
+         case "rmvb":             return "application/vnd.rn-realmedia-vbr"
+         case "asf":              return "video/x-ms-asf"
+         case "mxf":              return "application/mxf"
+         case "divx":             return "video/divx"
+         case "xvid":             return "video/x-xvid"
+         default: break
+       }
+     }
+
+     // ---------- 3) Magic Number 嗅探（只判斷圖片 / 視頻） ----------
+     if url.isFileURL,
+        let fh = try? FileHandle(forReadingFrom: url) {
+       let header = fh.readData(ofLength: 512)
+       fh.closeFile()
+
+       if let mt = mimeTypeFromMagicBytes(header) {
+         return mt
+       }
+     }
+
+     // ---------- 4) 兜底 ----------
+     return "application/octet-stream"
+   }
+
+  // MARK: - Magic Number 判斷（只圖片 + 視頻）
+  private func mimeTypeFromMagicBytes(_ header: Data) -> String? {
+    if header.isEmpty { return nil }
+    let bytes = [UInt8](header)
+    let count = bytes.count
+
+    // --- 圖片 ---
+
+    // PNG: 89 50 4E 47 0D 0A 1A 0A
+    if count >= 8,
+       bytes[0] == 0x89, bytes[1] == 0x50, bytes[2] == 0x4E, bytes[3] == 0x47,
+       bytes[4] == 0x0D, bytes[5] == 0x0A, bytes[6] == 0x1A, bytes[7] == 0x0A {
+      return "image/png"
+    }
+
+    // JPEG: FF D8 FF
+    if count >= 3,
+       bytes[0] == 0xFF, bytes[1] == 0xD8, bytes[2] == 0xFF {
+      return "image/jpeg"
+    }
+
+    // GIF: "GIF87a" / "GIF89a"
+    if count >= 6,
+       bytes[0] == 0x47, bytes[1] == 0x49, bytes[2] == 0x46, bytes[3] == 0x38,
+       (bytes[4] == 0x37 || bytes[4] == 0x39), bytes[5] == 0x61 {
+      return "image/gif"
+    }
+
+    // BMP: "BM"
+    if count >= 2,
+       bytes[0] == 0x42, bytes[1] == 0x4D {
+      return "image/bmp"
+    }
+
+    // TIFF: "II*\0" or "MM\0*"
+    if count >= 4 {
+      if bytes[0] == 0x49, bytes[1] == 0x49, bytes[2] == 0x2A, bytes[3] == 0x00 {
+        return "image/tiff"
+      }
+      if bytes[0] == 0x4D, bytes[1] == 0x4D, bytes[2] == 0x00, bytes[3] == 0x2A {
+        return "image/tiff"
       }
     }
 
-    // 2) 扩展名
-    let ext = url.pathExtension.lowercased()
-    if !ext.isEmpty {
-      if #available(iOS 14.0, *) {
-        if let ut = UTType(filenameExtension: ext), let mt = ut.preferredMIMEType { return mt }
-      } else {
-        if let uti = UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, ext as CFString, nil)?
-          .takeRetainedValue(),
-           let mt  = UTTypeCopyPreferredTagWithClass(uti, kUTTagClassMIMEType)?
-          .takeRetainedValue() { return mt as String }
+    // WebP: "RIFF" .... "WEBP"
+    if count >= 12,
+       bytes[0] == 0x52, bytes[1] == 0x49, bytes[2] == 0x46, bytes[3] == 0x46,
+       bytes[8] == 0x57, bytes[9] == 0x45, bytes[10] == 0x42, bytes[11] == 0x50 {
+      return "image/webp"
+    }
+
+    // HEIF/HEIC：ISO BMFF + ftyp heic / heix / hevc / hevx / mif1 / msf1
+    if count >= 12,
+       bytes[4] == 0x66, bytes[5] == 0x74, bytes[6] == 0x79, bytes[7] == 0x70 {
+      let brand = String(bytes: bytes[8...11], encoding: .ascii)?.lowercased() ?? ""
+      if ["heic", "heix", "hevc", "hevx"].contains(brand) {
+        return "image/heic"
       }
-      switch ext {
-        case "mp4", "m4v": return "video/mp4"
-        case "mov":       return "video/quicktime"
-        case "mkv":       return "video/x-matroska"
-        case "webm":      return "video/webm"
-        case "avi":       return "video/x-msvideo"
-        default: break
+      if ["mif1", "msf1"].contains(brand) {
+        return "image/heif"
       }
     }
 
-    // 3) 头部嗅探（仅 file://）。—— 使用旧 API：readData(ofLength:) + closeFile()，无版本要求
-    guard url.isFileURL, let fh = try? FileHandle(forReadingFrom: url) else { return nil }
-    let header = fh.readData(ofLength: 512)
-    fh.closeFile()
+    // --- 視頻 ---
 
-    if header.count >= 12 {
-      // MP4 / QuickTime：.... ftyp
-      let b = [UInt8](header)
-      if b[4] == 0x66, b[5] == 0x74, b[6] == 0x79, b[7] == 0x70 {
-        let brand = String(bytes: b[8...11], encoding: .ascii)?.lowercased() ?? ""
+    if count >= 12 {
+      // MP4 / MOV / 3GP：.... ftyp
+      if bytes[4] == 0x66, bytes[5] == 0x74, bytes[6] == 0x79, bytes[7] == 0x70 {
+        let brand = String(bytes: bytes[8...11], encoding: .ascii)?.lowercased() ?? ""
         if brand == "qt  " { return "video/quicktime" }
         if brand.hasPrefix("3gp") { return "video/3gpp" }
         return "video/mp4"
       }
     }
+
     // Matroska / WebM：EBML
     if header.starts(with: Data([0x1A, 0x45, 0xDF, 0xA3])) {
       if let s = String(data: header, encoding: .isoLatin1)?.lowercased(),
-         s.contains("webm") { return "video/webm" }
+         s.contains("webm") {
+        return "video/webm"
+      }
       return "video/x-matroska"
     }
+
     // AVI：RIFF....AVI
-    if header.starts(with: Data([0x52, 0x49, 0x46, 0x46])) && header.count >= 12 {
+    if count >= 12,
+       bytes[0] == 0x52, bytes[1] == 0x49, bytes[2] == 0x46, bytes[3] == 0x46 {
       let fourCC = header.subdata(in: 8..<12)
-      if fourCC == Data([0x41, 0x56, 0x49, 0x20]) { return "video/x-msvideo" }
+      if fourCC == Data([0x41, 0x56, 0x49, 0x20]) {
+        return "video/x-msvideo"
+      }
     }
 
-    // 4) 兜底
-    return "application/octet-stream"
+    // FLV: "FLV"
+    if count >= 3,
+       bytes[0] == 0x46, bytes[1] == 0x4C, bytes[2] == 0x56 {
+      return "video/x-flv"
+    }
+
+    // MPEG PS: 00 00 01 BA
+    if count >= 4,
+       bytes[0] == 0x00, bytes[1] == 0x00, bytes[2] == 0x01, bytes[3] == 0xBA {
+      return "video/mpeg"
+    }
+
+    // TS: 第一 byte 是 sync（粗略兜底）
+    if count >= 1, bytes[0] == 0x47 {
+      return "video/MP2T"
+    }
+
+    // ASF/WMV: 30 26 B2 75 8E 66 CF 11 A6 D9 00 AA 00 62 CE 6C
+    if count >= 16 {
+      let asfSig: [UInt8] = [0x30, 0x26, 0xB2, 0x75, 0x8E, 0x66, 0xCF, 0x11,
+                             0xA6, 0xD9, 0x00, 0xAA, 0x00, 0x62, 0xCE, 0x6C]
+      if Array(bytes[0..<16]) == asfSig {
+        return "video/x-ms-asf"
+      }
+    }
+
+    // RealMedia / RMVB: ".RMF"
+    if count >= 4,
+       bytes[0] == 0x2E, bytes[1] == 0x52, bytes[2] == 0x4D, bytes[3] == 0x46 {
+      return "application/vnd.rn-realmedia"
+    }
+
+    // OGG / OGV: "OggS"
+    if count >= 4,
+       bytes[0] == 0x4F, bytes[1] == 0x67, bytes[2] == 0x67, bytes[3] == 0x53 {
+      return "video/ogg"
+    }
+
+    return nil
   }
 
 

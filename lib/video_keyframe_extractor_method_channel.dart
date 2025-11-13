@@ -47,9 +47,9 @@ class MethodChannelVideoKeyframeExtractor
 
   /// 视频信息
   @override
-  Future<Map<String, dynamic>> getVideoInfo({required String path}) async {
+  Future<Map<String, dynamic>> getMediaInfo({required String path}) async {
     final map = await methodChannel
-        .invokeMethod<dynamic>('getVideoInfo', {'path': path});
+        .invokeMethod<dynamic>('getMediaInfo', {'path': path});
     return Map<String, dynamic>.from(map as Map);
   }
 
