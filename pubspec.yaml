@@ -1,7 +1,8 @@
-name: video_keyframe_extractor
-description: "A new Flutter project."
+name: brighton_video_keyframe_extractor
+description: "Flutter plugin for fast cross-platform video keyframe extraction on Android and iOS."
 version: 0.0.2
-homepage:
+homepage: https://github.com/yunzhiheyi/brighton_video_keyframe_extractor
+repository: https://github.com/yunzhiheyi/brighton_video_keyframe_extractor
 
 environment:
   sdk: ^3.6.2
@@ -35,7 +36,7 @@ flutter:
   plugin:
     platforms:
       android:
-        package: com.brighton.video_keyframe_extractor
+        package: com.brighton.brighton_video_keyframe_extractor
         pluginClass: VideoKeyframeExtractorPlugin
       ios:
         pluginClass: VideoKeyframeExtractorPlugin

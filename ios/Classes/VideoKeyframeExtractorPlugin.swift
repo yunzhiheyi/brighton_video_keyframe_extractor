@@ -48,7 +48,7 @@ public class VideoKeyframeExtractorPlugin: NSObject, FlutterPlugin {
 
   // MARK: - 注册
   public static func register(with registrar: FlutterPluginRegistrar) {
-    let channel = FlutterMethodChannel(name: "video_keyframe_extractor", binaryMessenger: registrar.messenger())
+    let channel = FlutterMethodChannel(name: "brighton_video_keyframe_extractor", binaryMessenger: registrar.messenger())
     let instance = VideoKeyframeExtractorPlugin()
     registrar.addMethodCallDelegate(instance, channel: channel)
   }

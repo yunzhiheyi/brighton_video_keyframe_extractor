@@ -1,4 +1,4 @@
-package com.brighton.video_keyframe_extractor
+package com.brighton.brighton_video_keyframe_extractor
 
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel

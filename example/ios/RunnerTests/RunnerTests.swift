@@ -3,7 +3,7 @@ import UIKit
 import XCTest
 
 
-@testable import video_keyframe_extractor
+@testable import brighton_video_keyframe_extractor
 
 // This demonstrates a simple unit test of the Swift portion of this plugin's implementation.
 //

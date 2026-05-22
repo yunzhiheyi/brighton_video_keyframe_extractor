@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:video_keyframe_extractor/video_keyframe_extractor.dart';
+import 'package:brighton_video_keyframe_extractor/brighton_video_keyframe_extractor.dart';
 
 void main() => runApp(const MyApp());
 
@@ -27,7 +27,7 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  static const _channel = MethodChannel('video_keyframe_extractor');
+  static const _channel = MethodChannel('brighton_video_keyframe_extractor');
 
   String? _videoPath;
   List<dynamic> _frames = []; // files 模式: List<String>；bytes 模式: List<Uint8List>

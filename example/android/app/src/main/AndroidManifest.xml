@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
-        android:label="video_keyframe_extractor_example"
+        android:label="brighton_video_keyframe_extractor_example"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

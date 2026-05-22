@@ -1,17 +1,17 @@
 #
 # To learn more about a Podspec see http://guides.cocoapods.org/syntax/podspec.html.
-# Run `pod lib lint video_keyframe_extractor.podspec` to validate before publishing.
+# Run `pod lib lint brighton_video_keyframe_extractor.podspec` to validate before publishing.
 #
 Pod::Spec.new do |s|
-  s.name             = 'video_keyframe_extractor'
-  s.version          = '0.0.1'
-  s.summary          = 'A new Flutter project.'
+  s.name             = 'brighton_video_keyframe_extractor'
+  s.version          = '0.0.2'
+  s.summary          = 'Fast cross-platform video keyframe extraction plugin for Flutter.'
   s.description      = <<-DESC
-A new Flutter project.
+Flutter plugin for extracting video keyframes, covers, and media metadata on Android and iOS.
                        DESC
-  s.homepage         = 'http://example.com'
+  s.homepage         = 'https://github.com/yunzhiheyi/brighton_video_keyframe_extractor'
   s.license          = { :file => '../LICENSE' }
-  s.author           = { 'Your Company' => 'email@example.com' }
+  s.author           = { 'yunzhiheyi' => 'yunzhiheyi@users.noreply.github.com' }
   s.source           = { :path => '.' }
   s.source_files = 'Classes/**/*'
   s.dependency 'Flutter'
@@ -25,5 +25,5 @@ A new Flutter project.
   # required reason APIs, update the PrivacyInfo.xcprivacy file to describe your
   # plugin's privacy impact, and then uncomment this line. For more information,
   # see https://developer.apple.com/documentation/bundleresources/privacy_manifest_files
-  # s.resource_bundles = {'video_keyframe_extractor_privacy' => ['Resources/PrivacyInfo.xcprivacy']}
+  # s.resource_bundles = {'brighton_video_keyframe_extractor_privacy' => ['Resources/PrivacyInfo.xcprivacy']}
 end

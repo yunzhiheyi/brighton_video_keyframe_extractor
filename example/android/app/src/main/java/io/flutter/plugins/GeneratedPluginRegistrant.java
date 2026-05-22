@@ -16,6 +16,11 @@ public final class GeneratedPluginRegistrant {
   private static final String TAG = "GeneratedPluginRegistrant";
   public static void registerWith(@NonNull FlutterEngine flutterEngine) {
     try {
+      flutterEngine.getPlugins().add(new com.brighton.brighton_video_keyframe_extractor.VideoKeyframeExtractorPlugin());
+    } catch (Exception e) {
+      Log.e(TAG, "Error registering plugin brighton_video_keyframe_extractor, com.brighton.brighton_video_keyframe_extractor.VideoKeyframeExtractorPlugin", e);
+    }
+    try {
       flutterEngine.getPlugins().add(new com.mr.flutter.plugin.filepicker.FilePickerPlugin());
     } catch (Exception e) {
       Log.e(TAG, "Error registering plugin file_picker, com.mr.flutter.plugin.filepicker.FilePickerPlugin", e);
@@ -29,11 +34,6 @@ public final class GeneratedPluginRegistrant {
       flutterEngine.getPlugins().add(new dev.flutter.plugins.integration_test.IntegrationTestPlugin());
     } catch (Exception e) {
       Log.e(TAG, "Error registering plugin integration_test, dev.flutter.plugins.integration_test.IntegrationTestPlugin", e);
-    }
-    try {
-      flutterEngine.getPlugins().add(new com.brighton.video_keyframe_extractor.VideoKeyframeExtractorPlugin());
-    } catch (Exception e) {
-      Log.e(TAG, "Error registering plugin video_keyframe_extractor, com.brighton.video_keyframe_extractor.VideoKeyframeExtractorPlugin", e);
     }
   }
 }

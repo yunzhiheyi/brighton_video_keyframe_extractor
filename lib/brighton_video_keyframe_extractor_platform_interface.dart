@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
-import 'video_keyframe_extractor_method_channel.dart';
-import 'video_keyframe_extractor.dart';
+import 'brighton_video_keyframe_extractor_method_channel.dart';
+import 'brighton_video_keyframe_extractor.dart';
 
 abstract class VideoKeyframeExtractorPlatform extends PlatformInterface {
   /// Constructs a VideoKeyframeExtractorPlatform.

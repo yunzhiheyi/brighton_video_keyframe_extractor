@@ -6,6 +6,12 @@
 
 #import "GeneratedPluginRegistrant.h"
 
+#if __has_include(<brighton_video_keyframe_extractor/VideoKeyframeExtractorPlugin.h>)
+#import <brighton_video_keyframe_extractor/VideoKeyframeExtractorPlugin.h>
+#else
+@import brighton_video_keyframe_extractor;
+#endif
+
 #if __has_include(<file_picker/FilePickerPlugin.h>)
 #import <file_picker/FilePickerPlugin.h>
 #else
@@ -18,18 +24,12 @@
 @import integration_test;
 #endif
 
-#if __has_include(<video_keyframe_extractor/VideoKeyframeExtractorPlugin.h>)
-#import <video_keyframe_extractor/VideoKeyframeExtractorPlugin.h>
-#else
-@import video_keyframe_extractor;
-#endif
-
 @implementation GeneratedPluginRegistrant
 
 + (void)registerWithRegistry:(NSObject<FlutterPluginRegistry>*)registry {
+  [VideoKeyframeExtractorPlugin registerWithRegistrar:[registry registrarForPlugin:@"VideoKeyframeExtractorPlugin"]];
   [FilePickerPlugin registerWithRegistrar:[registry registrarForPlugin:@"FilePickerPlugin"]];
   [IntegrationTestPlugin registerWithRegistrar:[registry registrarForPlugin:@"IntegrationTestPlugin"]];
-  [VideoKeyframeExtractorPlugin registerWithRegistrar:[registry registrarForPlugin:@"VideoKeyframeExtractorPlugin"]];
 }
 
 @end

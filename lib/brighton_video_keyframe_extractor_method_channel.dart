@@ -1,15 +1,15 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'video_keyframe_extractor_platform_interface.dart';
-import 'video_keyframe_extractor.dart';
+import 'brighton_video_keyframe_extractor_platform_interface.dart';
+import 'brighton_video_keyframe_extractor.dart';
 
 /// An implementation of [VideoKeyframeExtractorPlatform] that uses method channels.
 class MethodChannelVideoKeyframeExtractor
     extends VideoKeyframeExtractorPlatform {
   /// The method channel used to interact with the native platform.
   @visibleForTesting
-  final methodChannel = const MethodChannel('video_keyframe_extractor');
+  final methodChannel = const MethodChannel('brighton_video_keyframe_extractor');
 
   @override
   Future<String?> getPlatformVersion() async {

@@ -10,7 +10,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
-import 'package:video_keyframe_extractor/video_keyframe_extractor.dart';
+import 'package:brighton_video_keyframe_extractor/brighton_video_keyframe_extractor.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();

@@ -1,5 +1,5 @@
 import 'dart:typed_data';
-import 'video_keyframe_extractor_platform_interface.dart';
+import 'brighton_video_keyframe_extractor_platform_interface.dart';
 
 /// 输出模式：返回 bytes 还是文件路径。
 enum VKOutputMode { bytes, files }
@@ -126,7 +126,7 @@ class VideoInfo {
 }
 
 class VideoKeyframeExtractor {
-  /// 模板：获取平台版本
+  /// 获取平台版本
   Future<String?> getPlatformVersion() {
     return VideoKeyframeExtractorPlatform.instance.getPlatformVersion();
   }
@@ -198,5 +198,4 @@ class VideoKeyframeExtractor {
       applyRotation: applyRotation,
     );
   }
-
 }

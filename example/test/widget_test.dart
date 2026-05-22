@@ -8,20 +8,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:video_keyframe_extractor_example/main.dart';
+import 'package:brighton_video_keyframe_extractor_example/main.dart';
 
 void main() {
-  testWidgets('Verify Platform version', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
+  testWidgets('示例首页应展示关键入口控件', (WidgetTester tester) async {
     await tester.pumpWidget(const MyApp());
 
-    // Verify that platform version is retrieved.
-    expect(
-      find.byWidgetPredicate(
-        (Widget widget) => widget is Text &&
-                           widget.data!.startsWith('Running on:'),
-      ),
-      findsOneWidget,
-    );
+    expect(find.text('Video Keyframe Extractor'), findsOneWidget);
+    expect(find.text('选择资源'), findsOneWidget);
+    expect(find.text('获取封面'), findsOneWidget);
+    expect(find.text('未选择视频'), findsOneWidget);
   });
 }

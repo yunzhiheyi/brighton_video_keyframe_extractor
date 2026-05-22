@@ -1,4 +1,4 @@
-# video_keyframe_extractor
+# brighton_video_keyframe_extractor
 
 一个同时支持 Android & iOS 的 Flutter 插件，用于高性能抽取视频关键帧/等间隔帧。
 在“全片稀疏抽帧（如 8～16 张封面）”场景下，iOS 端默认采用并行 AVAssetImageGenerator + 无限容差 + 预热 + HEIC 编码的极速策略；Android 端提供 fastMode 预设（关键帧优先 + 并发切片 + 像素下压 + 减少 I/O），常见配置可实现亚秒级出图。
@@ -63,6 +63,12 @@ class VideoKeyframeExtractor {
 }
 
 ```
+
+## 说明
+
+- 当前插件包名已统一为 `brighton_video_keyframe_extractor`
+- Android 包名已统一为 `com.brighton.brighton_video_keyframe_extractor`
+- 方法通道、示例工程、iOS podspec 与测试引用已同步收口，避免改名后出现平台侧找不到插件的问题
 
 ## 🚀 使用示例
 ### 1) 极速预设：12 张封面（推荐起步）

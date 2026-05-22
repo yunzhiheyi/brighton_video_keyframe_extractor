@@ -1,4 +1,4 @@
-package com.brighton.video_keyframe_extractor
+package com.brighton.brighton_video_keyframe_extractor
 
 import android.content.ContentResolver
 import android.content.Context
@@ -56,7 +56,7 @@ class VideoKeyframeExtractorPlugin : FlutterPlugin, MethodCallHandler {
   private val VERBOSE_LOG = true
 
   override fun onAttachedToEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
-    channel = MethodChannel(binding.binaryMessenger, "video_keyframe_extractor")
+    channel = MethodChannel(binding.binaryMessenger, "brighton_video_keyframe_extractor")
     channel.setMethodCallHandler(this)
     appContext = binding.applicationContext
     resolver = appContext.contentResolver

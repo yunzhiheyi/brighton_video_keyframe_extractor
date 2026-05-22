@@ -1,16 +1,8 @@
-# video_keyframe_extractor_example
+# brighton_video_keyframe_extractor_example
 
-Demonstrates how to use the video_keyframe_extractor plugin.
+用于演示 `brighton_video_keyframe_extractor` 插件的基础接入方式，包括：
 
-## Getting Started
-
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- 选择本地视频文件
+- 抽取关键帧并预览结果
+- 调用封面提取与媒体信息接口
+- 验证缓存清理与任务取消能力

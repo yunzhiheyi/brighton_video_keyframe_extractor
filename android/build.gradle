@@ -1,4 +1,4 @@
-group = "com.brighton.video_keyframe_extractor"
+group = "com.brighton.brighton_video_keyframe_extractor"
 version = "1.0-SNAPSHOT"
 
 buildscript {
@@ -25,7 +25,7 @@ apply plugin: "com.android.library"
 apply plugin: "kotlin-android"
 
 android {
-    namespace = "com.brighton.video_keyframe_extractor"
+    namespace = "com.brighton.brighton_video_keyframe_extractor"
 
     compileSdk = 35
 

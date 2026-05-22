@@ -2,9 +2,9 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
-import 'package:video_keyframe_extractor/video_keyframe_extractor.dart';
-import 'package:video_keyframe_extractor/video_keyframe_extractor_method_channel.dart';
-import 'package:video_keyframe_extractor/video_keyframe_extractor_platform_interface.dart';
+import 'package:brighton_video_keyframe_extractor/brighton_video_keyframe_extractor.dart';
+import 'package:brighton_video_keyframe_extractor/brighton_video_keyframe_extractor_method_channel.dart';
+import 'package:brighton_video_keyframe_extractor/brighton_video_keyframe_extractor_platform_interface.dart';
 
 /// 模拟平台层实现，用于单元测试
 class MockVideoKeyframeExtractorPlatform
