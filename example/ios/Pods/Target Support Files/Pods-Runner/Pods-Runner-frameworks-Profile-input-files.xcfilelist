@@ -1,8 +1,0 @@
-${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-frameworks.sh
-${BUILT_PRODUCTS_DIR}/DKImagePickerController/DKImagePickerController.framework
-${BUILT_PRODUCTS_DIR}/DKPhotoGallery/DKPhotoGallery.framework
-${BUILT_PRODUCTS_DIR}/SDWebImage/SDWebImage.framework
-${BUILT_PRODUCTS_DIR}/SwiftyGif/SwiftyGif.framework
-${BUILT_PRODUCTS_DIR}/file_picker/file_picker.framework
-${BUILT_PRODUCTS_DIR}/integration_test/integration_test.framework
-${BUILT_PRODUCTS_DIR}/video_keyframe_extractor/video_keyframe_extractor.framework
